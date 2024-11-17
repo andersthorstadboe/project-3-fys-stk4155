@@ -218,6 +218,7 @@ def plot1D(x_data, z_data, labels=['','','','','',''],
 
 from mpl_toolkits.mplot3d import Axes3D
 def plot2D(x_data, y_data, z_data, labels=['','','','','',''],
+           colormap='viridis',
            save=False, f_name: str='generic name.png'
            ):
    """
@@ -250,13 +251,13 @@ def plot2D(x_data, y_data, z_data, labels=['','','','','',''],
       fig = plt.figure()
 
    # Plotting initial data
-   ax = fig.add_subplot(111,projection='3d')
-   f1 = ax.plot_surface(x_data,y_data,z_data,cmap='viridis')
+   ax = fig.add_subplot(projection='3d')
+   f1 = ax.plot_surface(x_data,y_data,z_data,cmap=colormap)
    ax.set_aspect(aspect='auto')
 
-   ax.view_init(elev=25, azim=-30)
+   ax.view_init(elev=30, azim=65)
    ax.set_title(labels[0]); ax.set_xlabel(labels[1])
-   ax.set_ylabel(labels[2]); ax.set_zlabel(labels[3])
+   ax.set_ylabel(labels[2]); ax.set_zlabel(labels[3],rotation=90)
    ax.tick_params(axis='both', which='major', labelsize=6)
    #fig.tight_layout()
    if save == True:

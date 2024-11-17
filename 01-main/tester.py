@@ -70,7 +70,7 @@ def u(x):
 
 def g_trial(point,P):
     x,t = point
-    print('x,t',x,t)
+    #print('x,t',x,t)
     return (1-t)*u(x) + x*(1-x)*t*deep_neural_network(P,point)
 
 # The right side of the ODE:
@@ -87,7 +87,7 @@ def cost_function(P, x, t):
     for x_ in x:
         for t_ in t:
             point = np.array([x_,t_])
-            print('p',point)
+            #print('p',point)
 
             g_t = g_trial(point,P)
             g_t_jacobian = g_t_jacobian_func(point,P)
@@ -150,7 +150,7 @@ if __name__ == '__main__':
     npr.seed(15)
 
     ## Decide the vales of arguments to the function to solve
-    Nx = 4; Nt = 4
+    Nx = 10; Nt = 10
     x = np.linspace(0, 1, Nx)
     t = np.linspace(0, 1, Nt)
 
@@ -158,6 +158,15 @@ if __name__ == '__main__':
     num_hidden_neurons = [2, 2]
     num_iter = 2
     lmb = 0.01
+
+    xx,tt = np.meshgrid(x,t)
+    g_t = (1-tt)*u(xx)
+    fig = plt.figure()
+    ax = fig.add_subplot(111,projection='3d')
+
+    ax.plot_surface(t,x,g_t)
+    ax.view_init(elev=80, azim=65)
+    plt.show()
 
     P = solve_pde_deep_neural_network(x,t, num_hidden_neurons, num_iter, lmb)
 
@@ -239,4 +248,4 @@ if __name__ == '__main__':
     plt.plot(x,res_analytical3)
     plt.legend(['dnn','analytical'])
 
-    #plt.show()
+    plt.show()
