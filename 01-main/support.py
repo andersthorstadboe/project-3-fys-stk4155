@@ -22,6 +22,10 @@ def LeakyReLU(z,alpha=0.01):
 def ELU(z,alpha=1.):
     return anp.where(z > 0, z, alpha*(anp.exp(z)-1))
 
+def GELU(z):
+    a = 0.044715
+    return 0.5*z*(1 + anp.tanh(anp.sqrt(2/anp.pi)*(z + a*z**3)))
+
 ## --- Gradient Descent methods --- ##
 class GDTemplate:
     def __init__(self,learning_rate=0.01):
