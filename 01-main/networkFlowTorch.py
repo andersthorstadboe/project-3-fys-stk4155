@@ -16,6 +16,8 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.activations import get
 from tensorflow.keras import optimizers, regularizers
 
+from sklearn.metrics import r2_score
+
 
 class FFNNetworkFlow:
     """ Class using a Physics Informed Neural Network (PINN) to solve partial differential equations (PDE)'s,
@@ -30,6 +32,7 @@ class FFNNetworkFlow:
                  domain_array,
                  domain=[0,1],
                  gd_method='adam',
+                 regularizer='l2',
                  learning_rate=0.01,
                  random_state = 1,
                  ):
@@ -41,6 +44,7 @@ class FFNNetworkFlow:
         self.domain         = domain
         self.domain_array   = domain_array
         self.method         = gd_method
+        self.reg            = regularizer
         self.eta            = learning_rate
         self.random_seed    = random_state
 
@@ -95,12 +99,15 @@ class FFNNetworkFlow:
 
         ## Plot of collocation setup
         if plot_colloc == True:
-            fig = plt.figure(figsize=(9,6))
-            plt.scatter(t_0, x_0, c=u_0, marker='X', vmin=-1, vmax=1)
-            plt.scatter(t_b, x_b, c=u_b, marker='p', vmin=-1, vmax=1)
-            plt.scatter(t_r, x_r, c='r', marker='.', alpha=0.1)
+            c = 0.02
+            fig = plt.figure()#figsize=(9,6))
+            plt.scatter(t_0, x_0, c='g', marker='D',linewidths=0.1,label='Initial')
+            plt.scatter(t_b, x_b, c='b', marker='p',linewidths=1,label='Boundary')
+            plt.scatter(t_r, x_r, c='r', marker='o', alpha=0.5,label='Colloc.')
             plt.xlabel('$t$')
-            plt.ylabel('$x$')
+            plt.ylabel('$x$',rotation=0,labelpad=10)
+            plt.xlim([t0-c,tN+c]); plt.ylim([x0-2*c,xN+2*c])
+            plt.legend(loc='lower right',framealpha=0.95,fontsize=15); plt.grid(c='0.15',ls='--',alpha=0.9)
             plt.show()
 
         ## Storing domain and PDE-data
@@ -130,12 +137,33 @@ class FFNNetworkFlow:
 
         ## Scaling layer (see PINN_Solver.ipynb for details)
         scaling_layer = Lambda(lambda x: 2.0*(x - self.Lb)/(self.Ub - self.Lb) - 1.0)
-        self.model.add(scaling_layer)
+        #self.model.add(scaling_layer)
 
+        ## Setting regularizer
+        if self.reg == 'l1':
+            if type(lmbda) is not float:
+                lmbda = min(lmbda)
+                print('You should only pass one value using this choice')
+                print('Picked the smallest, λ = %.3e' %lmbda)
+            reg = regularizers.L1(lmbda)
+        elif self.reg == 'l2':
+            if type(lmbda) is not float:
+                lmbda = min(lmbda)
+                print('You should only pass one value using this choice')
+                print('Picked the smallest, λ = %.3e' %lmbda)
+            reg = regularizers.L2(lmbda)
+        elif self.reg == 'l1l2':
+            if type(lmbda) is float:
+                print('You can choose different λ\'s for L¹,L² by passing a lmbda = [l¹,l²]')
+                print('Picking them equal for now...')
+                lmbda = [lmbda,lmbda]
+            reg = regularizers.L1L2(lmbda[0],lmbda[1])
+        else:
+            reg = None
         ## Hidden layers plus output layer from layers list
         for i in range(num_layers):
             self.model.add(Dense(self.layer_out_size[i],activation=get(self.act_func[i]),
-                            kernel_regularizer=regularizers.l2(lmbda)))
+                            kernel_regularizer=reg))
             
     def choose_optimizer(self):
         """ Method choosing the scheduler and gradient descent method based on the class initialization."""
@@ -149,6 +177,9 @@ class FFNNetworkFlow:
             self.optimzer = optimizers.RMSprop(learning_rate=self.eta)
         elif self.method == 'adagrad':
             self.optimzer = optimizers.Adagrad(learning_rate=self.eta)
+        else:
+            print("Invalid choice of gradient descent method, choosing ADAM")
+            self.optimzer = optimizers.Adam(learning_rate=self.eta)
 
 
     def compute_residual(self):
@@ -215,7 +246,7 @@ class FFNNetworkFlow:
 
         return cost, gradient
     
-    def train_network(self,epochs=100, tol=None):
+    def train_network(self,epochs=100, tol=None, prnt=False):
         """ Method that trains the network for a given number of epochs. If a tolerance is given,
             the training is terminated if the error reduction is within the tolerance for 5 training
             steps. 
@@ -234,14 +265,26 @@ class FFNNetworkFlow:
             return cost
         
         self.cost_history = []
-        
+        iter = 0
         ## Training loop
         for i in range(epochs):
             cost = train_step()
             self.cost_history.append(cost.numpy())
 
-            if i % int(epochs/10) == 0:
+            if i % int(epochs/10) == 0 and prnt == True:
                 print('Iteration: %i: Cost = %1.5e' %(i,cost))
+            #print(cost.numpy() - self.cost_history[i-1])
+            if tol is not None:
+                if i > 0 and np.abs(cost.numpy() - self.cost_history[i-1]) < tol:
+                    #print('Cur.cost diff:',cost.numpy() - self.cost_history[i-1])
+                    iter += 1
+                    #print(iter)
+                    #print(i)
+                    if iter > 5:
+                        print('Early stop criterion reach, stopping...')
+                        break
+                elif i > 0:
+                    iter = 0
 
         print('Final cost = %1.5e' %(cost))
 
@@ -270,12 +313,15 @@ class FFNNetworkFlow:
 
         ## Calculating the difference between the solutions
         self.abs_diff = np.abs(self.network_solution - self.analytic)
+        self.diff = self.network_solution - self.analytic
 
         ## R2-score?
+        self.r2 = r2_score(self.analytic,self.network_solution)
 
 
     def plot_results(self,plots='all',
-                     idx=[0,-1],
+                     time=[0.,1.],
+                     cmap='viridis',
                      save=False,
                      f_name=['gen_name_1','gen_name_2','gen_name_3']
                      ):
@@ -289,13 +335,13 @@ class FFNNetworkFlow:
             Parameters
             ---
             plots : str
-                **'all'**: all figures, minimum 4; **'network'**; only network and difference surface-plot; 
-                **'exact'**: only analytical solution; **'slices'**: only line-plots of time-instances
-            idx : list
-                List of time-instances to plot. If **len(idx)** > 3n, n = 1,2,..., multiple 
+                `'all'`: all figures, minimum 4; `'solution'`; only network and difference surface-plot; 
+                `'exact'`: only analytical solution; `'slices'`: only line-plots of time-instances
+            time : list
+                List of times to plot. If len(time) > 3n, n = 1,2,..., multiple 
                 figures are made. 
             save : bool
-                `True` saves the figures to current directory, using the names provided in **f_name**-list
+                `True` saves the figures to current directory, using the names provided in `f_name`-list
             f_name : list, str
                 List of figure names. 
         """
@@ -305,8 +351,10 @@ class FFNNetworkFlow:
 
         t,x = self.domain_array
         tt,xx = np.meshgrid(t,x)
+        Nt = len(t); Nx = len(x)
+        tN = t[-1]; xN = x[-1]
 
-        if plots == 'all' or plots == 'network':
+        if plots == 'all' or plots == 'solution':
             plot2D(tt,xx,self.network_solution,
                 labels=['Network solution','t','x','u(t,x)'],
                 save=save,f_name=f_name[0])
@@ -314,22 +362,29 @@ class FFNNetworkFlow:
             plot2D(tt,xx,self.analytic,
                 labels=['Analytical solution','t','x','u(t,x)'],
                 save=save,f_name=f_name[1])
-        if plots == 'all' or plots == 'network':
+        if plots == 'all' or plots == 'difference':
+            contour_diff(tt,xx,self.abs_diff,labels=['Abs.difference','t','x'],cmap=cmap)
+            contour_diff(tt,xx,self.diff,labels=['Difference','t','x'],cmap=cmap)
             plot2D(tt,xx,self.abs_diff,
+                labels=['Abs.difference','t','x','u(t,x)'],
+                save=save,f_name=f_name[2])
+            plot2D(tt,xx,self.diff,
                 labels=['Difference','t','x','u(t,x)'],
                 save=save,f_name=f_name[2])
             
         ## Line plots showing different slices of surface defined by x,t
         if plots == 'slices' or plots == 'all':
             t_id = []; net_sol = []; analytic_res = []; 
-            fig,ax = plt.subplots(1,len(idx),figsize=(12,4))
+            fig,ax = plt.subplots(1,len(time),figsize=(12,4))
             fig.suptitle('Solutions at different times')
-            for i in range(len(idx)):
-                t_id.append(t[idx[i]])
-                net_sol.append(self.network_solution[:,idx[i]])
-                analytic_res.append(self.analytic[:,idx[i]])
+            for i,n in enumerate(time):
+                id = int(n*Nt/tN)
+                print(id, len(t))
+                t_id.append(t[id])
+                net_sol.append(self.network_solution[:,id])
+                analytic_res.append(self.analytic[:,id])
                 
-                ax[i].plot(x,net_sol[i],label=r'$\tilde{u}$',lw=2.5)
+                ax[i].plot(x,net_sol[i],label=r'$\hat{u}$',lw=2.5)
                 ax[i].plot(x,analytic_res[i],'--',label=r'$u_{e}$',)
                 ax[i].set_title('t = %g' %t_id[i])
                 ax[i].set_xlabel('x'); 
@@ -350,11 +405,12 @@ class FFNNetworkFlow2D(FFNNetworkFlow):
                  source_function, 
                  domain_array, 
                  domain=([0,1],[0,1]), 
-                 gd_method='adam', 
+                 gd_method='adam',
+                 regularizer='l2', 
                  learning_rate=0.01, 
                  random_state=1):
         super().__init__(layer_output_size, activation_functions, PDE, source_function, 
-                         domain_array, domain, gd_method, learning_rate, random_state)
+                         domain_array, domain, gd_method, regularizer, learning_rate, random_state)
         
     def collocation_setup(self, bounds=([0,1],[0,1],[0,1]), 
                           colloc_points=1000, 
@@ -438,7 +494,9 @@ class FFNNetworkFlow2D(FFNNetworkFlow):
 
         return self.PDE.residual_function(u=u_list)
     
-    def evaluate(self):
+    def evaluate(self,
+                 domain_array=None
+                 ):
         """ Method evaluating the network model against an analytical solution of the PDE.
 
             Creates instance variables for the final prediction, analytical solution and 
@@ -446,17 +504,22 @@ class FFNNetworkFlow2D(FFNNetworkFlow):
         """
         
         ## Setting up meshgrid
-        t,x,y = self.domain_array
+        #print([self.domain_array if domain_array is None else domain_array].shape)
+        if domain_array is None:
+            t,x,y = self.domain_array
+        else:
+            t,x,y = domain_array
+    
+        #t,x,y = self.domain_array
+
         Nx,Ny,Nt = np.size(x), np.size(y), np.size(t)
         tt,xx,yy = np.meshgrid(t,x,y,indexing='ij') 
 
         ## Array for evaluating the network and solution
         Xgrid = np.vstack([tt.flatten(),xx.flatten(),yy.flatten()]).T
-
-        ## Evaluating network
         net_sol = self.model(tf.cast(Xgrid,dtype=self.DTYPE))
         self.network_solution = net_sol.numpy().reshape(Nt,Nx,Ny)
-
+     
         ## Computing analytical solution
         analytic_array = (Xgrid[:,1],Xgrid[:,2],Xgrid[:,0])
         analytic_sol = self.PDE.analytical(domain_array=analytic_array,domain=self.domain)
@@ -464,12 +527,18 @@ class FFNNetworkFlow2D(FFNNetworkFlow):
 
         ## Calculating the difference between the solutions
         self.abs_diff = np.abs(self.network_solution - self.analytic)
+        self.diff = self.network_solution - self.analytic
+
+        ## R2-score
+        self.r2 = r2_score(self.analytic,self.network_solution)
         
 
     def plot_results(self,
                     plots='all',
-                    time_idx=[5,-1],
-                    space_idx=([1,5],[1,5]),
+                    domain_array=None,
+                    time=[0.,1.],
+                    space=([0.,0.5],[0.,0.5]),
+                    cmap='viridis',
                     save=False, f_name='gen_name.png'
                     ):
         """ Plotting-method that uses the variables from the `evaluate`-method to make 2D-plots 
@@ -483,7 +552,7 @@ class FFNNetworkFlow2D(FFNNetworkFlow):
             Parameters
             ---
             plots : str
-                **'all'**: all figures, minimum 4; **'network'**; only network and difference surface-plot; 
+                **'all'**: all figures, minimum 4; **'solution'**; only network and difference surface-plot; 
                 **'exact'**: only analytical solution; **'slices'**: only line-plots of time-instances
             time_idx : list
                 List of time-instances to plot. If **len(idx)** > 3n, n = 1,2,..., multiple 
@@ -496,37 +565,101 @@ class FFNNetworkFlow2D(FFNNetworkFlow):
                 List of figure names. 
         """
 
-        self.evaluate()
-        t,x,y = self.domain_array
-        tt,xx,yy = np.meshgrid(t,x,y,indexing='ij')
+        self.evaluate(domain_array=domain_array)
 
-        for i in range(len(time_idx)):
-            if plots == 'all' or plots == 'finite':
-                plot2D(xx[time_idx[i],:,:],yy[time_idx[i],:,:],self.network_solution[:,:,time_idx[i]],
-                    labels=['Network solution','y','x','u(x,y,t)'],
+        if domain_array is None:
+            t,x,y = self.domain_array
+        else:
+            t,x,y = domain_array
+
+        #t,x,y = self.domain_array
+
+        tt,xx,yy = np.meshgrid(t,x,y,indexing='ij')
+        Nt = len(t); Nx = len(x); Ny = len(y)
+        tN = t[-1]; Lx = x[-1]; Ly = x[-1]
+
+        for i in time:
+            id = int(i*Nt/tN)
+            if plots == 'all' or plots == 'solution':
+                plot2D(xx[id,:,:],yy[id,:,:],self.network_solution[:,:,id],
+                    labels=[('Network solution\nt = %.3f' %t[id]),'y','x','u(x,y,t)'],
                     save=save,f_name=f_name)
             if plots == 'all' or plots == 'exact':
-                plot2D(xx[time_idx[i],:,:],yy[time_idx[i],:,:],self.analytic[:,:,time_idx[i]],
-                    labels=['Analytical solution','y','x','u(x,y,t)'],
+                plot2D(xx[id,:,:],yy[id,:,:],self.analytic[:,:,id],
+                    labels=[('Analytical solution\nt = %.3f' %t[id]),'y','x','u(x,y,t)'],
                     save=save,f_name=f_name)
-            if plots == 'all' or plots == 'finite':
-                plot2D(xx[time_idx[i],:,:],yy[time_idx[i],:,:],self.abs_diff[:,:,time_idx[i]],
-                    labels=['Difference','y','x','u(x,y,t)'],
+            if plots == 'all' or plots == 'solution':
+                contour_diff(xx[id,:,:],yy[id,:,:],self.abs_diff[:,:,id],
+                             labels=['Abs.difference','x','y'],
+                             cmap=cmap)
+                contour_diff(xx[id,:,:],yy[id,:,:],self.diff[:,:,id],
+                             labels=['Abs.difference','x','y'],
+                             cmap=cmap)
+                plot2D(xx[id,:,:],yy[id,:,:],self.abs_diff[:,:,id],
+                    labels=[('Abs.difference\nt = %.3f' %t[id]),'y','x','u(x,y,t)'],
                     save=save,f_name=f_name)
-        if plots == 'slices':
-            for i in range(len(time_idx)):
-                for id in space_idx:
-                    raise NotImplementedError
+                plot2D(xx[id,:,:],yy[id,:,:],self.diff[:,:,id],
+                    labels=[('Difference\nt = %.3f' %t[id]),'y','x','u(x,y,t)'],
+                    save=save,f_name=f_name)
+        
+        if plots == 'slices' or plots == 'all':
+            pos_x = [int(space[0][0]*Nx/Lx),int(space[0][1]*Nx/Lx)]
+            pos_y = [int(space[1][0]*Ny/Ly),int(space[1][1]*Ny/Ly)]
+            for i in time:
+                id = int(i*Nt/tN)
+                fig,ax = plt.subplots(2,2)
+                
+                fig.suptitle('Solution at t = %.3f' %t[id])
+
+                ## Center x-axis
+                net_sol_center_x = self.network_solution[pos_x[0],:,id]
+                analytic_sol_center_x = self.analytic[pos_x[0],:,id]
+                ax[0,0].plot(y,net_sol_center_x,label=r'$\hat{u}$')
+                ax[0,0].plot(y,analytic_sol_center_x,'--',label=r'$u_{e}$')
+                ax[0,0].set_title(r'$x =$ %.3f' %x[pos_x[0]])
+                ax[0,0].set_ylabel(r'$\boldsymbol{u}$',rotation=0)
+                ax[0,0].legend(); ax[0,0].grid()
+
+                ## Center y-axis
+                net_sol_center_y = self.network_solution[:,pos_y[0],id]
+                analytic_sol_center_y = self.analytic[:,pos_y[0],id]
+                ax[0,1].plot(x,net_sol_center_y)
+                ax[0,1].plot(x,analytic_sol_center_y,'--',)
+                ax[0,1].set_title(r'$y =$ %.3f' %y[pos_y[0]]); ax[0,1].grid()
+                
+
+                ## Near x = 0 bound
+                net_sol_bound_x = self.network_solution[pos_x[1],:,id]
+                analytic_sol_bound_x = self.analytic[pos_x[1],:,id]
+                ax[1,0].plot(y,net_sol_bound_x)
+                ax[1,0].plot(y,analytic_sol_bound_x,'--')
+                ax[1,0].set_title(r'$x =$ %.3f' %x[pos_x[1]])
+                ax[1,0].set_xlabel(r'$\boldsymbol{y}$'); ax[1,0].set_ylabel(r'$\boldsymbol{u}$',rotation=0)
+                ax[1,0].grid()
+                
+                ## Near y = Ly bound
+                net_sol_bound_y = self.network_solution[:,pos_y[1],id]
+                analytic_sol_bound_y = self.analytic[:,pos_y[1],id]
+                ax[1,1].plot(y,net_sol_bound_y)
+                ax[1,1].plot(y,analytic_sol_bound_y,'--')
+                ax[1,1].set_title(r'$y =$ %.3f' %y[pos_y[1]])
+                ax[1,1].set_xlabel(r'$\boldsymbol{x}$'); ax[1,1].grid()
+
+                fig.tight_layout(w_pad=1)
 
 
 if __name__ == '__main__':
     problem = '1d'
+    #problem = '2d'
+    #test = 'wave'
+    test = 'diffusion'
+    print('\n#--------------------------------------#\nProblem:'+problem+'-'+test+'\n#--------------------------------------#\n')
     if problem == '1d':
         tf.random.set_seed(1)
 
-        layer_out_sizes = [20,20,20,20,20,20,20,20,1]
+        layer_out_sizes = [20,20,1]
 
-        hidden_func = 'gelu' # sigmoid, relu, elu, leaky_relu, tanh, swish, gelu, hard_sigmoid, exponential
+        hidden_func = 'swish' # sigmoid, relu, elu, leaky_relu, tanh, swish, gelu, hard_sigmoid, exponential
 
         act_funcs = []; act_ders = []
         for i in range(len(layer_out_sizes)-1):
@@ -534,20 +667,30 @@ if __name__ == '__main__':
 
         act_funcs.append(None); 
 
-        #PDE = Diffusion1D(sim_type='flow')
-        #PDE = Burger1D(sim_type='flow')
-        PDE = Wave1D(sim_type='flow')
+        if test == 'wave':
+            c,amp = 1.,1.
+            PDE = Wave1D(sim_type='flow',amp=amp,c=c)
+            x0,xN = 0,1
+        elif test == 'diffusion':
+            D,amp = 1.,1.
+            PDE = Diffusion1D(sim_type='flow',amp=amp,D=D)
+            x0,xN = 0,1
+        else:
+            PDE = Burger1D(sim_type='flow')
+            x0,xN = 0,1
+        
         f = PDE.right_hand_side
 
         Nt,Nx = 100,100
-        T0,T,L0,Lx = 0,1,-1,1
+        t0,tN = 0,1
 
-        x_bound = [L0,Lx]; t_lim = [T0,T]
+        x_bound = [x0,xN]; t_lim = [t0,tN]
         x = np.linspace(x_bound[0],x_bound[1],Nx)
         t = np.linspace(t_lim[0],t_lim[1],Nt)
         
         domain_array = anp.array([t,x])
-        lmbda = 1e-6
+        lmbda = [1e-2,1e-8]
+        eta = 4.2e-2 #None
         
         network = FFNNetworkFlow(layer_output_size=layer_out_sizes,
                                 activation_functions=act_funcs,
@@ -556,23 +699,25 @@ if __name__ == '__main__':
                                 domain_array=domain_array,
                                 domain=x_bound,
                                 gd_method='adam',
-                                learning_rate=None)
+                                regularizer='l2',
+                                learning_rate=eta)
         
-        network.collocation_setup(bounds=(x_bound,t_lim),colloc_points=10000,
-                                bound_points=50,init_points=50)
+        network.collocation_setup(bounds=(x_bound,t_lim),colloc_points=5000,
+                                bound_points=20,init_points=20)
         network.create_layers(lmbda=lmbda)
-        network.choose_optimizer()
         
-        network.train_network(1000)
+        network.train_network(2595)
         #network.evaluate()
-        network.plot_results()
-        print(np.max(network.abs_diff))
+        network.plot_results(plots='all',time=[0.1,0.55,0.9])
+        print('Mean.diff:',np.mean(network.abs_diff))
+
+        print('R²',network.r2)
         plt.show()
 
     elif problem == '2d':
         tf.random.set_seed(1)
 
-        layer_out_sizes = [20,20,20,20,20,20,20,20,1]
+        layer_out_sizes = [50,20,1]
 
         hidden_func = 'gelu' # sigmoid, relu, elu, leaky_relu, tanh, swish, gelu, hard_sigmoid, exponential
 
@@ -581,22 +726,28 @@ if __name__ == '__main__':
             act_funcs.append(hidden_func)
 
         act_funcs.append(None); 
-
-        PDE = Diffusion2D(sim_type='flow')
-        #PDE = Wave2D(sim_type='flow',m=[2,2])
-
+        if test == 'wave':
+            x0,y0 = -1,-1
+            xN,yN = 1,1
+            PDE = Wave2D(sim_type='flow',m=[1,1])
+        elif test == 'diffusion':
+            x0,y0 = 0,0
+            xN,yN = 1,1
+            PDE = Diffusion2D(sim_type='flow',amp=1.,D=1.)
+        
         f = PDE.right_hand_side
 
         Nt,Nx,Ny = 100,100,100
-        t0,x0,y0 = 0,0,0
-        T,Lx,Ly = 1,1,1
-        t_lim = [t0,T]; x_bound = [x0,Lx]; y_bound = [y0,Ly]
+        t0,tN = 0,1
+  
+        t_lim = [t0,tN]; x_bound = [x0,xN]; y_bound = [y0,yN]
         t = np.linspace(t_lim[0],t_lim[1],Nt)
         x = np.linspace(x_bound[0],x_bound[1],Nx)
         y = np.linspace(y_bound[0],y_bound[1],Ny)
         
         domain_array = anp.array([t,x,y])
-        lmbda = 1e-2
+        lmbda = 1e-9
+        eta = 1e-2
         
         network = FFNNetworkFlow2D(layer_output_size=layer_out_sizes,
                                     activation_functions=act_funcs,
@@ -605,17 +756,18 @@ if __name__ == '__main__':
                                     domain_array=domain_array,
                                     domain=(x_bound,y_bound),
                                     gd_method='adam',
-                                    learning_rate=None)
+                                    regularizer = 'l2',
+                                    learning_rate=eta)
         
-        network.collocation_setup(bounds=(x_bound,y_bound,t_lim),
-                                  colloc_points=10000,
+        network.collocation_setup(bounds=(t_lim,x_bound,y_bound),
+                                  colloc_points=5000,
                                   bound_points=50, 
                                   init_points=50)
         network.create_layers(lmbda=lmbda)
         
-        network.train_network(1000)
+        network.train_network(1000,prnt=True)
 
-        network.plot_results()
+        network.plot_results(plots='all',time=[0.,1.])
         print(np.max(network.abs_diff))
         
         plt.show()
