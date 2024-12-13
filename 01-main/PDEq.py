@@ -91,7 +91,7 @@ class Diffusion1D(Functions):
             du(x,t)/dt = du²(x,t)/dt
         using Dirichlet boundary conditions"""
 
-    def __init__(self, sim_type='own', rhs=0, amp=1, D=1.):
+    def __init__(self, sim_type='own', rhs=0., amp=1., D=1.):
         super().__init__(sim_type, rhs)
 
         self.sim_type = sim_type
@@ -106,17 +106,14 @@ class Diffusion1D(Functions):
             self.amp = amp
 
     def init_function(self,domain_array,domain):
-        #x,t = domain_array[:,0], domain_array[:,1]
-        #x,t = domain_array[:,1:2], 0
-        #return self.analytical(domain_array=(x,t),domain=domain)
         if self.sim_type == 'own':
             x,t = domain_array, 0
-            #L = domain[1]
-            return self.analytical(domain_array=(x,t),domain=domain)
-            #return self.amp * anp.sin(anp.pi*x/L)
+            L = domain[1]
+            #return self.analytical(domain_array=(x,t),domain=domain)
+            return self.amp * anp.sin(anp.pi*x/L)
         elif self.sim_type == 'flow':
             x,t = domain_array[:,1:2], 0
-            #L = tf.constant(domain[1],dtype=self.DTYPE)
+            L = tf.constant(domain[1],dtype=self.DTYPE)
             return self.analytical(domain_array=(x,t),domain=domain)
             #return self.amp * tf.sin(self.pi * x/L)
     
@@ -132,18 +129,23 @@ class Diffusion1D(Functions):
     def trail_function(self,point,domain): # Only used in own implementation
         """ """
         t,x = point; x0,xN = domain
-        self.h1 = (1 - t) * (self.init_function(x,domain) 
-                             - ((1 - x/xN)*self.init_function(x0,domain)) 
-                             + (x/xN)*self.init_function(xN,domain))# + t*(
-                                 #(1 - x/xN)*self.boundary_function((x0,t),domain) +
-                                 #(x/xN)*self.boundary_function((xN,t),domain) )
-        self.B = t * (1 - x/xN)*(x/xN)
+        """self.h1 = (1. - t) * (self.init_function(x,domain) 
+                             - ((1. - x/xN)*self.init_function(x0,domain))
+                             #- ((1 - x)*self.init_function(x0,domain))
+                             - (x/xN)*self.init_function(xN,domain))
+                             #+ (x)*self.init_function(xN,domain))"""
+        #self.B = t * (1. - x/xN)*(x/xN)
+        #self.B = t * (1 - x)*(x)
+        #self.h1 = (1. - t) * self.init_function(x,domain=domain) #anp.sin(anp.pi*x)
+        self.h1 = (1. - t) * (self.amp * anp.sin(anp.pi*x/xN))
+        self.B = x/xN*(1. - x/xN)*t
+
 
     def cost_input(self,jacobian,hessian):
         """ Returns the network prediction for input to cost function,
             expressed in terms of the relevant term from the Jacobian
             and Hessian matrices computed from the trail function
-            Diffusion equation: u_pred = u_t - c²u_xx"""
+            Diffusion equation: u_pred = u_t - D*u_xx"""
         return jacobian[0] - self.Df*hessian[1][1]
 
     def residual_function(self,u):
@@ -155,7 +157,7 @@ class Diffusion1D(Functions):
     def analytical(self,domain_array,domain):
         x,t = domain_array
         if self.sim_type == 'own':
-            L = domain[1] + anp.abs(domain[0])
+            L = 1.#domain[1] + anp.abs(domain[0])
             Df = self.Df
             return self.amp * anp.exp(-anp.pi**2 * Df * t/(L**2)) * anp.sin(anp.pi*x/L)
         elif self.sim_type == 'flow':
@@ -178,28 +180,24 @@ class Diffusion2D(Functions):
             self.amp = amp
 
     def init_function(self,domain_array,domain):
-        #t,x,y = domain_array[:,0:1], domain_array[:,1:2], domain_array[:,2:3]
-        t,x,y = 0, domain_array[:,1:2], domain_array[:,2:3]
-        Lx,Ly = domain[0][1],domain[1][1]
-        if self.sim_type == 'flow':
-            Lx,Ly = tf.constant(Lx,dtype=self.DTYPE), tf.constant(Ly, dtype=self.DTYPE)
-            return self.amp * tf.sin(self.pi*x/Lx)*tf.sin(self.pi*y/Ly)
-        #return self.analytical(domain_array=(x,y,t),domain=domain) 
+        t,x,y = domain_array[:,0:1], domain_array[:,1:2], domain_array[:,2:3]
+        return self.analytical(domain_array=(t,x,y),domain=domain) 
     
     def trail_function(self,domain_array,domain):
         raise NotImplementedError
     
     def boundary_function(self,domain_array,domain):
         t,x,y = domain_array[:,0:1], domain_array[:,1:2], domain_array[:,2:3]
-        return self.analytical(domain_array=(x,y,t),domain=domain)
+        return self.analytical(domain_array=(t,x,y),domain=domain)
     
     def residual_function(self, u):
         """ PDE's LHS. u = [u, u_t, u_x, u_y, u_tt, u_xx, u_yy]
             Diffusion equation: r = u_t - D*(u_xx + u_yy)"""
-        return u[1] - self.Df*(u[5] - u[-1])
+        return u[1] - self.Df*(u[5] + u[-1])
     
     def analytical(self,domain_array,domain):
-        x,y,t = domain_array #domain_array[:,0], domain_array[:,1], domain_array[:,2]
+        t,x,y = domain_array #domain_array[:,0], domain_array[:,1], domain_array[:,2]
+        #t,x,y = domain_array[:,0:1], domain_array[:,1:2], domain_array[:,2:3]
         Lx,Ly = domain[0][1]+anp.abs(domain[0][0]), domain[1][1] + anp.abs(domain[1][0])
         if self.sim_type == 'own':
             eig = self.Df*anp.pi**2*((1.0/Lx**2) + (1.0/Ly**2))
@@ -213,7 +211,7 @@ class Diffusion2D(Functions):
 
 class Wave1D(Functions):
 
-    def __init__(self, sim_type='own', rhs=0,amp=1, c=1):
+    def __init__(self, sim_type='own', rhs=0,amp=1., c=1.,m=1.):
         super().__init__(sim_type, rhs)
 
         self.dimension = 2
@@ -222,19 +220,24 @@ class Wave1D(Functions):
             self.c = tf.constant(c, dtype=self.DTYPE)
             self.amp = tf.constant(amp, dtype=self.DTYPE)
             self.pi = tf.constant(np.pi,dtype=self.DTYPE)
+            self.m = tf.constant(m,dtype=self.DTYPE)
         else:
             self.c = c
             self.amp = amp
+            self.m = m
 
     def init_function(self,domain_array,domain): #u = u(x,t = 0)
         if self.sim_type == 'own':
             x,t = domain_array, 0
             L = domain[1] + anp.abs(domain[0])
-            return self.amp * anp.sin(anp.pi*x/L)
+            #return self.amp * anp.sin(anp.pi*x/L)
+            #return self.analytical((x,t),domain=domain)
         elif self.sim_type == 'flow':
             x,t = domain_array[:,1:2], 0
             L = tf.constant((domain[1] + np.abs(domain[0])),dtype=self.DTYPE)
-            return self.amp * tf.sin(self.pi*x/L)
+            #return self.amp * tf.sin(self.pi*x/L)
+        return self.analytical((x,t),domain=domain)
+
         
     def boundary_function(self,domain_array,domain):
         x,t = domain_array[:,1:2], domain_array[:,0:1]
@@ -246,7 +249,9 @@ class Wave1D(Functions):
         self.h1 = (1 - t**2) * (self.init_function(x,domain) 
                                 - ((1 - x/xN)*self.init_function(x0,domain)) 
                                 + (x/xN)*self.init_function(xN,domain)) + t*u0_dt
+        self.h1 = (1 - t**2) * (self.amp*anp.sin(anp.pi * x/xN)) - t*(self.amp*self.c*anp.pi*anp.sin(anp.pi*x/xN))
         self.B = t**2 * (1 - (x/xN)) * (x/xN)
+        
 
     def cost_input(self,jacobian,hessian): 
         """ Returns the network prediction for input to cost function,
@@ -264,6 +269,7 @@ class Wave1D(Functions):
         x,t = domain_array; 
         if self.sim_type == 'own':
             L = domain[1] + anp.abs(domain[0])
+            k = self.m*anp.pi
             return self.amp * anp.sin(anp.pi*x/L)*anp.cos(self.c*anp.pi*t)
         elif self.sim_type == 'flow':
             L = tf.constant(domain[1] + np.abs(domain[0]),dtype=self.DTYPE)
@@ -288,41 +294,37 @@ class Wave2D(Functions):
             self.amp = amp
             self.mx = m[0]; self.my = m[1]
 
-    def init_function(self,domain_array,domain): #u = u(x,t = 0)
-        t,x,y = domain_array[:,0:1], domain_array[:,1:2], domain_array[:,2:3]
-        return self.analytical((x,y,t),domain)
-        '''
-        if self.sim_type == 'own':
-            L = np.abs(domain[1] - domain[0])
-            return self.amp * anp.sin(anp.pi*x/L)
-        elif self.sim_type == 'flow':
-            L = tf.constant(np.abs(domain[1] - domain[0]),dtype=self.DTYPE)
-            return self.amp * tf.sin(self.pi*x/L)
-        #'''
+    def init_function(self,domain_array,domain): #u = u(t = 0,x,y)
+        #t,x,y = domain_array[:,0:1], domain_array[:,1:2], domain_array[:,2:3]
+        t,x,y = 0, domain_array[:,1:2], domain_array[:,2:3]
+        return self.analytical((t,x,y),domain)
         
     def boundary_function(self,domain_array,domain):
         t,x,y = domain_array[:,0:1], domain_array[:,1:2], domain_array[:,2:3]
-        return self.analytical((x,y,t),domain)
+        return self.analytical((t,x,y),domain)
     
     def trail_function(self,point,domain):
         raise NotImplementedError
 
     def residual_function(self,u):
         """ PDE's LHS. u = [u, du_dt, du_dx, du_dy, du_dtt, du_dxx, du_dyy]
-            Wave equation: r = du_dtt - c²/du_dxx + du_dyy)"""
-        return u[4] - self.c**2 * (u[5] - u[-1])
+            Wave equation: r = du_dtt - c²(du_dxx + du_dyy)"""
+        return u[4] - self.c**2 * (u[5] + u[-1])
     
     def analytical(self,domain_array,domain):
-        x,y,t = domain_array; 
+        t,x,y = domain_array; 
+        #t,x,y = domain_array[:,0:1], domain_array[:,1:2], domain_array[:,2:3]
         if self.sim_type == 'own':
             Lx,Ly = domain[0][1] + np.abs(domain[0][0]), domain[1][1] + np.abs(domain[1][0])
             kx,ky = self.mx*anp.pi, self.my*anp.pi
-            k = anp.max(kx,ky); w = k*self.c
+            k = kx**2 + ky**2; w = anp.sqrt(k)*self.c
             return self.amp * anp.sin(kx*x/Lx)*anp.sin(ky*y/Ly)*anp.cos(w*t)
         elif self.sim_type == 'flow':
             Lx = tf.constant(domain[0][1] + np.abs(domain[0][0]), dtype=self.DTYPE)
             Ly = tf.constant(domain[1][1] + np.abs(domain[1][0]), dtype=self.DTYPE)
             kx,ky = tf.constant(self.mx*self.pi,dtype=self.DTYPE), tf.constant(self.my*self.pi,dtype=self.DTYPE)
-            k = max(kx,ky)
+            k = tf.sqrt(kx**2 + ky**2)
             w = tf.constant(k*self.c, dtype=self.DTYPE)
+            #return self.amp * tf.sin(kx*x)*tf.sin(ky*y)*tf.cos(w*t)
             return self.amp * tf.sin(kx*x/Lx)*tf.sin(ky*y/Ly)*tf.cos(w*t)
+        

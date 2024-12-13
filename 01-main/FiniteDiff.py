@@ -59,7 +59,24 @@ class FDSolver:
         raise RuntimeError
     
     def evaluate(self,tN=1):
-        raise RuntimeError
+        
+        Nt = int(tN/self.dt)
+        self.t_n = np.linspace(0,tN,Nt+1)
+
+        self.fd_solution = np.zeros((self.N+1,Nt+1))
+        self.analytic = np.zeros_like(self.fd_solution)
+        self.l2_error = np.zeros(len(self.t_n)); self.diff = np.zeros_like(self.fd_solution)
+        for n in range(len(self.t_n)):
+
+            self.fd_solution[:,n] = self.sol_data[n]
+            #analytic_sol_tn = sp.lambdify(x, self.ue.subs({L: self.L, c: self.c, t: self.t_n[n]}))
+            analytic_sol_tn = sp.lambdify(x, self.ue.subs({t: self.t_n[n]}))
+
+            self.analytic[:,n] = analytic_sol_tn(self.x)
+            self.l2_error[n] = np.sqrt( self.dx*np.sum( (self.sol_data[n] - self.analytic[:,n])**2 ) )
+            self.diff[:,n] = self.analytic[:,n] - self.sol_data[n]
+        
+        self.abs_diff = np.abs(self.diff)
     
     def plot_result(self,tN=1,
                     plots='all',
@@ -81,16 +98,20 @@ class FDSolver:
             plot2D(tt,xx,self.analytic,
                 labels=['Analytic solution','t','x','u(x,t)'],
                 save=save,f_name=f_name[1])
-        if plots == 'all' or plots == 'solution':
+        if plots == 'all' or plots == 'difference':
             contour_diff(tt,xx,self.abs_diff)
+            #contour_diff(tt,xx,self.diff)
             plot2D(tt,xx,self.abs_diff,
-                labels=['Difference','t','x','u(x,t)'],
+                labels=['Abs.difference','t','x','u(x,t)'],
                 save=save,f_name=f_name[2])
+            #plot2D(tt,xx,self.diff,
+            #    labels=['Difference','t','x','u(x,t)'],
+            #    save=save,f_name=f_name[2])
             
         ## Line plots showing different slices of surface defined by x,t
         if plots == 'slices' or plots == 'all':
             t_id = []; fd_sol = []; analytic_res = []; 
-            fig,ax = plt.subplots(1,len(time),figsize=(12,4))
+            fig,ax = plt.subplots(len(time),1,figsize=(6,4))
             fig.suptitle('Solutions at different times')
             for i,n in enumerate(time):
                 id = int(n*Nt/tN)
@@ -183,7 +204,7 @@ class Diffusion1DSolver(FDSolver):
         self.sol_data = {0: self.un.copy()}
 
         for n in range(1,Nt+1):
-            self.unp1[:] = self.un + C* (D @ self.un)
+            self.unp1[:] = self.un + C * (D @ self.un)
             self.unp1 = self.apply_bcs(tn=n*self.dt, bc=bc, u=self.unp1)
             
             ## Assigning updated solution for next timestep
@@ -191,7 +212,7 @@ class Diffusion1DSolver(FDSolver):
 
             self.sol_data[n] = self.unp1.copy()
 
-    def evaluate(self, tN=1):
+    """def evaluate(self, tN=1):
 
         Nt = int(tN/self.dt)
         self.t_n = np.linspace(0,tN,Nt+1)
@@ -205,7 +226,7 @@ class Diffusion1DSolver(FDSolver):
             analytic_sol_tn = sp.lambdify(x, self.ue.subs({t: self.t_n[n]}))
             self.analytic[:,n] = analytic_sol_tn(self.x)
         
-        self.abs_diff = np.abs(self.fd_solution - self.analytic)
+        self.abs_diff = np.abs(self.fd_solution - self.analytic)"""
 
 
     def u_exact(self):
@@ -307,13 +328,14 @@ class Wave1DSolver(FDSolver):
 
             self.sol_data[n] = self.unp1.copy()
 
-    def evaluate(self, tN=1):
+    """def evaluate(self, tN=1):
 
         Nt = int(tN/self.dt)
         self.t_n = np.linspace(0,tN,Nt+1)
 
-        self.fd_solution = fd_sol = np.zeros((self.N+1,Nt+1))
-        self.analytic = np.zeros_like(fd_sol)
+        self.fd_solution = np.zeros((self.N+1,Nt+1))
+        self.analytic = np.zeros_like(self.fd_solution)
+        self.l2_error = np.zeros(len(self.t_n)); self.diff = np.zeros_like(self.fd_solution)
         for n in range(len(self.t_n)):
 
             self.fd_solution[:,n] = self.sol_data[n]
@@ -321,8 +343,10 @@ class Wave1DSolver(FDSolver):
             analytic_sol_tn = sp.lambdify(x, self.ue.subs({t: self.t_n[n]}))
 
             self.analytic[:,n] = analytic_sol_tn(self.x)
+            self.l2_error[n] = np.sqrt( self.dx*np.sum( (self.sol_data[n] - self.analytic[:,n])**2 ) )
+            self.diff[:,n] = self.analytic[:,n] - self.sol_data[n]
         
-        self.abs_diff = np.abs(fd_sol - self.analytic)  
+        self.abs_diff = np.abs(self.diff)"""
         
     def u_exact(self):
         amp = self.amp
@@ -383,7 +407,7 @@ class Wave2DSolver(Wave1DSolver):
 
         return D
 
-    def apply_bcs(self, t_n, U, bc):
+    def apply_bcs(self, U, bc):
         """ Applying Dirichlet boundary conditions with arbitrary RHS """
         bcl, bcr = bc['x0'], bc['xN']
         bcd, bcu = bc['y0'], bc['yN']
@@ -426,11 +450,11 @@ class Wave2DSolver(Wave1DSolver):
         self.Nt = int(tN/self.dt)
         self.create_mesh(sparse=True)
 
-        self.D2x = self.D2(bc=0)/self.h_x
-        self.D2y = self.D2(bc=0)/self.h_y
+        self.D2x = self.D2(bc=0)/self.h_x**2
+        self.D2y = self.D2(bc=0)/self.h_y**2
 
         self.initialize()
-        self.apply_bcs(self.dt,self.Un,bc=bc)
+        self.apply_bcs(self.Un,bc=bc)
 
         self.sol_data = {0: self.Unm1.copy(), 1: self.Un.copy()}
 
@@ -438,7 +462,7 @@ class Wave2DSolver(Wave1DSolver):
             self.Unp1[:] = 2*self.Un - self.Unm1 + (self.c*self.dt)**2 * (self.D2x @ self.Un 
                                                                 + self.Un @ self.D2y.T)
             #Boundary condictions
-            self.apply_bcs(n*self.dt,self.Unp1,bc=bc)  
+            self.apply_bcs(self.Unp1,bc=bc)  
 
             # Updating Un, Unm1
             self.Unm1[:] = self.Un
@@ -451,19 +475,19 @@ class Wave2DSolver(Wave1DSolver):
     def evaluate(self, tN=1):
         
         self.t_n = np.linspace(0,tN,self.Nt+1)
-
         self.analytic = {}
         self.fd_solution = np.zeros((self.N+1,self.Nt+1))
-        diff = []
+        self.diff = []; self.l2_error = np.zeros(len(self.t_n))
         for n in range(len(self.t_n)):
 
             analytic_sol_tn = sp.lambdify((x,y), self.ue.subs({t: self.t_n[n]}))
 
             self.analytic[n] = analytic_sol_tn(self.xij,self.yij)
 
-            diff.append(self.sol_data[n] - self.analytic[n])
+            self.diff.append(self.sol_data[n] - self.analytic[n])
+            self.l2_error[n] = np.sqrt( self.h_x*self.h_y*np.sum( (self.analytic[n] - self.sol_data[n])**2 ) )
             
-        self.abs_diff = np.abs(diff)
+        self.abs_diff = np.abs(self.diff)
 
     def plot_result(self,
                     tN=1,
@@ -492,40 +516,38 @@ class Wave2DSolver(Wave1DSolver):
             if plots == 'all' or plots == 'solution':
                 contour_diff(xx,yy,self.abs_diff[id])
                 plot2D(xx,yy,self.abs_diff[id],
-                    labels=[('Difference\nt = %.3f' %t[id]),'x','y','u(x,y,t)'],
+                    labels=[('Abs.difference\nt = %.3f' %t[id]),'x','y','u(x,y,t)'],
                     save=save,f_name=f_name[2])
                 
         if plots == 'all' or plots == 'slices':
             pos_x = [int(space[0][0]*self.N/self.Lx),int(space[0][1]*self.N/self.Lx)]
             pos_y = [int(space[1][0]*self.N/self.Ly),int(space[1][1]*self.N/self.Ly)]
-            print(pos_x)
             for i in time:
                 id = int(i*self.Nt/tN)
-                fig,ax = plt.subplots(2,2)
+                fig,ax = plt.subplots(2,2,figsize=(5,5))
                 
                 fig.suptitle('Solution at t = %.3f' %t[id])
 
-                ## Center x-axis
+                ## Pos_x[0]
                 ax[0,0].plot(yj,self.sol_data[id][pos_x[0],:],label=r'$\hat{u}$')
                 ax[0,0].plot(yj,self.analytic[id][pos_x[0],:],'--',label=r'$u_{e}$')
                 ax[0,0].set_title(r'$x =$ %.3f' %xi[pos_x[0]])
                 ax[0,0].set_ylabel(r'$\boldsymbol{u}$',rotation=0)
                 ax[0,0].legend(); ax[0,0].grid()
 
-                ## Center y-axis
+                ## pos_y[0]
                 ax[0,1].plot(xi,self.sol_data[id][:,pos_y[0]])
                 ax[0,1].plot(xi,self.analytic[id][:,pos_y[0]],'--')
                 ax[0,1].set_title(r'$y =$ %.3f' %yj[pos_y[0]]); ax[0,1].grid()
-                
 
-                ## Near x = 0 bound
+                ## pos_x[1]
                 ax[1,0].plot(yj,self.sol_data[id][pos_x[1],:])
                 ax[1,0].plot(yj,self.analytic[id][pos_x[1],:],'--')
                 ax[1,0].set_title(r'$x =$ %.3f' %xi[pos_x[1]])
                 ax[1,0].set_xlabel(r'$\boldsymbol{y}$'); ax[1,0].set_ylabel(r'$\boldsymbol{u}$',rotation=0)
                 ax[1,0].grid()
                 
-                ## Near y = Ly bound
+                ## pos_y[1]
                 ax[1,1].plot(xi,self.sol_data[id][:,pos_y[1]])
                 ax[1,1].plot(xi,self.analytic[id][:,pos_y[1]],'--')
                 ax[1,1].set_title(r'$y =$ %.3f' %yj[pos_y[1]])
@@ -582,11 +604,11 @@ class Diffusion2DSolver(Wave2DSolver):
         self.Nt = int(tN/self.dt)
         self.create_mesh(sparse=True)
 
-        self.D2x = self.D2(bc=0)/self.h_x
-        self.D2y = self.D2(bc=0)/self.h_y
+        self.D2x = self.D2(bc=0)/self.h_x**2
+        self.D2y = self.D2(bc=0)/self.h_y**2
 
         self.initialize()
-        self.apply_bcs(0,self.Un,bc=bc)
+        self.apply_bcs(self.Un,bc=bc)
 
         self.sol_data = {0: self.Un.copy()}
 
@@ -595,7 +617,7 @@ class Diffusion2DSolver(Wave2DSolver):
                                                       + self.Un @ self.D2y.T )
 
             #Boundary condictions
-            self.apply_bcs(n*self.dt,self.Unp1,bc=bc)  
+            self.apply_bcs(self.Unp1,bc=bc)  
 
             # Updating Un
             self.Un[:] = self.Unp1
@@ -622,7 +644,7 @@ if __name__ == '__main__':
         Nx = 20
         tN = 1
         cfl = 0.1 
-        domain = [-1,1]  # L_0 and L_N
+        domain = [0,1]  # L_0 and L_N
         c = 1.0
         A0 = 1.
         L = domain[1] + np.abs(domain[0])
@@ -631,35 +653,36 @@ if __name__ == '__main__':
 
         problem = Wave1DSolver(Nx,domain,cfl,u0,c)
 
-        problem.solver(tN=tN,cfl=1,bc=bc,ic=0)
+        problem.solver(tN=tN,cfl=cfl,bc=bc,ic=0)
 
         problem.plot_result(tN=tN,plots='all',time=[0.05,0.95])
 
+        print(problem.l2_error.shape)
+
     elif test == 'diffusion1d':
-        Nx = 20
+        Nx = 10
         tN = 1
         cfl = 0.1 
-        domain = [0,2] 
-        A0 = 1.
+        domain = [0,1] 
+        A0 = 0.1
         L = domain[1]
         u0 = A0*sp.sin(sp.pi*x/L)
-        Df = 1.
+        Df = 0.1
         bc = {'left': 0, 'right': 0}
 
         problem = Diffusion1DSolver(N=Nx,domain=domain,cfl=cfl,u0=u0,amp=A0,D=Df)
 
         problem.solver(tN=tN,bc=bc)
 
-        problem.plot_result(tN=tN,plots='all',time=[0.05,0.5])
+        problem.plot_result(tN=tN,plots='all',time=[0.1,0.5,0.9])
 
     elif test == 'wave2d':
-        N = 20
+        N = 200
         tN = 1.
-        cfl = 0.005 #1/(np.sqrt(2)) #0.01
-        print(cfl)
+        cfl = 0.1 #1./(np.sqrt(2.))
         domain = ([0,1],[0,1])
-        c = 3.0
-        amp = 10
+        c = 0.1
+        amp = 1.
         m = [2,2]
         bc = {'x0': 0, 'xN': 0, 'y0': 0, 'yN': 0}
 
@@ -668,25 +691,27 @@ if __name__ == '__main__':
         
         problem.solver(tN=tN,bc=bc)
 
-        problem.evaluate(tN=1)
-        problem.plot_result(tN=tN,time=[0.01,0.99],space=([0.25,0.75],[0.25,0.75]))
+        problem.plot_result(tN=tN,time=[0.1,0.9],space=([0.25,0.75],[0.25,0.75]))
+        #print(problem.l2_error[5])
+        print(np.mean(problem.l2_error))
     
     elif test == 'diffusion2d':
         N = 20
-        tN = 2.
-        cfl = 0.5
+        tN = 1.
+        cfl = 1.
         domain = ([0,1],[0,1])
-        D = 1.0
+        D = 0.1
         amp = 1.0
         bc = {'x0': 0, 'xN': 0, 'y0': 0, 'yN': 0}
 
         problem = Diffusion2DSolver(N=N,domain=domain,
                                     cfl=cfl,amp=amp,D=D)
         
-        problem.solver(tN=tN,cfl=cfl,bc=bc)
+        problem.solver(tN=tN,bc=bc)
 
-        problem.plot_result(tN=tN,time=[0,tN])
+        problem.plot_result(tN=tN,time=[0,tN],space=([0.25,0.75],[0.25,0.75]))
         
+        print(np.mean(problem.l2_error))
 
     if show:
         plt.show()

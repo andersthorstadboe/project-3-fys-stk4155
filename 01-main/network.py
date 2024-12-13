@@ -116,20 +116,13 @@ class FFNNetwork:
                 trail_jac  = trail_jac_func(point_in, P)
                 trail_hess = trail_hess_func(point_in, P)
 
-                #trail_d = trail_jac[0]  # 
-                #print('J',trail_jac)
-                #print('J',trail_d)
-                #print('H',trail_hess)
-                #trail_d2 = trail_hess[1][1]
-                #print('H',trail_d2)
-
                 trail_pred = self.PDE.cost_input(trail_jac,trail_hess)
 
-                f = self.PDE.right_hand_side(point_in,source_function=self.source)
+                f = 0.#self.PDE.right_hand_side(point_in,source_function=self.source)
 
-                #err_sqr = ( (trail_d - trail_d2) - f )**2
+                #err_sqr = ( trail_jac[0] - trail_hess[1][1] - f )**2
+
                 err_sqr = ( trail_pred - f )**2
-
 
                 sum_cost += err_sqr
         
@@ -180,19 +173,22 @@ class FFNNetwork:
     def evaluate(self): # Currently specific to u = u(x,t)
         t,x = self.domain_array
         Nx,Nt = anp.size(x), anp.size(t)
+        dx = x[-1]/Nx
 
         ## Storing values from final solution parameter matrix and analytical solution
-        self.network_solution = np.zeros((Nt,Nx))
-        self.analytic = np.zeros_like(self.network_solution)
+        self.network_solution = anp.zeros((Nt,Nx))
+        self.analytic = anp.zeros_like(self.network_solution)
+        self.l2_error = anp.zeros(len(t)); self.diff = anp.zeros((Nt,Nx))
         for n, tn in enumerate(t):
             for i, xi in enumerate(x):
-                point = np.array([tn,xi])
-
+                point = anp.array([tn,xi])
                 self.network_solution[n,i] = self.trail_solution(point=point,P=self.fin_P_matrix)
 
                 self.analytic[n,i] = self.PDE.analytical(domain_array=(point[1],point[0]),domain=self.domain)
-
-        self.abs_diff = anp.abs(self.network_solution - self.analytic)
+            self.diff[n,:] = self.network_solution[n,:] - self.analytic[n,:]
+            self.l2_error[n] = anp.sqrt( dx*anp.sum( (self.network_solution[n,:] - self.analytic[n,:])**2 ) )
+        
+        self.abs_diff = anp.abs(self.diff)
     
     def plot_result(self,plots='all',
                     time=[0.01,0.99],
@@ -206,8 +202,9 @@ class FFNNetwork:
             Parameters
             ---
             plots : str
-                `'all'`: all figures, minimum 4; `'solution'`; only network and difference surface-plot; 
-                `'exact'`: only analytical solution; `'slices'`: only line-plots of time-instances
+                `'all'`: all figures, minimum 4; `'solution'`; only network surface-plot; 
+                `'exact'`: only analytical solution; `'difference'`: Contour+surface plot of abs.differences;
+                `'slices'`: only line-plots of time-instances
             save : bool
                 If True, a figure with name `f_name.png` saves to the current directory
             f_name : list, str
@@ -222,11 +219,10 @@ class FFNNetwork:
         tt,xx = anp.meshgrid(t,x)
         Nt = len(t); tN = t[-1]
 
-
         ## Surface plots
         if plots == 'all' or plots == 'solution':
             plot2D(xx,tt,self.network_solution,
-                labels=['Network solution','t','x','u(t,x)'],
+                labels=['Network solution','x','t','u(t,x)'],
                 save=save,f_name=f_name[0])
         
         if plots == 'all' or plots == 'exact':
@@ -234,23 +230,23 @@ class FFNNetwork:
                 labels=['Analytical solution','t','x','u(t,x)'],
                 save=save,f_name=f_name[1])
             
-        if plots == 'all' or plots == 'solution':
-            contour_diff(xx,tt,self.abs_diff,labels=['x','t'],
+        if plots == 'all' or plots == 'difference':
+            contour_diff(xx,tt,self.abs_diff,labels=['Abs.difference','x','t'],
                          save=save,f_name=f_name[2])
             plot2D(xx,tt,self.abs_diff,
-                labels=['Difference','t','x','u(t,x)'],
+                labels=['Abs.difference','t','x','u(t,x)'],
                 save=save,f_name=f_name[3])
         
         ## Line plots showing different slices of surface defined by x,t
-        if plots == 'slices':
+        if plots == 'all' or plots == 'slices':
             t_id = []; net_sol = []; analytic_res = []; fig, ax = [],[]
-            fig,ax = plt.subplots(1,len(time),figsize=(12,4))
+            fig,ax = plt.subplots(len(time),1,figsize=(6,4))
             fig.suptitle('Solutions at different times')
             for i,n in enumerate(time):
                 id = int(n*Nt/tN)
                 t_id.append(t[id])
-                net_sol.append(self.network_solution[:,id])
-                analytic_res.append(self.analytic[:,id])
+                net_sol.append(self.network_solution[id,:])
+                analytic_res.append(self.analytic[id,:])
                 
                 ax[i].plot(x,net_sol[i],label=r'$\hat{u}$',lw=2.5)
                 ax[i].plot(x,analytic_res[i],'--',label=r'$u_{e}$',)
@@ -266,50 +262,62 @@ class FFNNetwork:
 if __name__ == "__main__":
 
     ## Random seed
-    default_seed = 1; anp.random.seed(default_seed)
+    default_seed = 15; anp.random.seed(default_seed)
 
     ## Figure defaults
-    plt.rcParams["figure.figsize"] = (8,3); plt.rcParams["font.size"] = 10
+    plt.rcParams["figure.figsize"] = (8,5); plt.rcParams["font.size"] = 10
 
     anp.random.seed(default_seed)
 
-    test = 'diff'
-    #test = 'wave'
+    #test = 'diff'
+    test = 'wave'
 
-    #layer_out_sizes = [20,20,20,20,20,20,1]
+    #layer_out_sizes = [20,20,20,20,20,1]
     layer_out_sizes = [20,20,1]
 
 
-    hidden_func = tanh # sigmoid ReLU, ELU, LeakyReLU,identity, tanh
-    hidden_der  = elementwise_grad(hidden_func,0)
+    hidden_func = sigmoid # sigmoid ReLU, ELU, LeakyReLU,identity, tanh, GELU, SiLU
+    #hidden_der  = elementwise_grad(hidden_func,0)
+    hidden_der  = grad(hidden_func,0)
+
 
     act_funcs = []; act_ders = []
     for i in range(len(layer_out_sizes)-1):
         act_funcs.append(hidden_func)
         act_ders.append(hidden_der)
     act_funcs.append(identity); 
-    output_der = identity #elementwise_grad(act_funcs[-1],0);
+    output_der = identity
     act_ders.append(output_der)
 
-    gd_method = ADAM(learning_rate=0.01,lmbda=0.00000001)
+    #gd_method = Adagrad(learning_rate=5e-2,momentum=1e-6,lmbda=1e-8)
+    #gd_method = RMSprop(learning_rate=5e-2,decay=0.1,lmbda=1e-10)
+    gd_method = ADAM(learning_rate=5e-2,lmbda=1e-8)
+
+
+    Nt,Nx = 20,20
     if test == 'diff':
-        PDE = Diffusion1D(D=1.)
-        x = anp.linspace(0,1,10)
-        t = anp.linspace(0,1,10)
+        PDE = Diffusion1D(D=.1,amp=1.)
+        x = anp.linspace(0,1,Nx)
+        t = anp.linspace(0,1,Nt)
     elif test == 'wave':
-        PDE = Wave1D()
-        x = anp.linspace(-1,1,10)
-        t = anp.linspace(0,1,10)
+        PDE = Wave1D(c=0.5,amp=1.,m=1.)
+        x = anp.linspace(0,1,Nx)
+        t = anp.linspace(0,1,Nt)
     
     domain_array = anp.array([t,x])
 
     f = PDE.right_hand_side
 
-    network = FFNNetwork(layer_out_sizes,act_funcs,act_ders,PDE,f,domain_array)
+    network = FFNNetwork(layer_out_sizes,
+                         act_funcs,
+                         act_ders,
+                         PDE,
+                         f,
+                         domain_array,
+                         domain=[0,1],
+                         random_state=default_seed)
 
-    P = network.train_network(GDMethod=gd_method,epochs=500)
-    network.evaluate()
-    network.plot_result()
+    network.train_network(GDMethod=gd_method,epochs=100)
+    network.plot_result(plots='all',time=[0.1,0.8])
+    print(network.l2_error.mean())
     plt.show()
-
-    print(anp.max(network.abs_diff))

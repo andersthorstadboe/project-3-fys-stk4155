@@ -25,6 +25,8 @@ def ELU(z,alpha=1.):
 def GELU(z):
     a = 0.044715
     return 0.5*z*(1 + anp.tanh(anp.sqrt(2/anp.pi)*(z + a*z**3)))
+def SiLU(z):
+    return z*sigmoid(z)
 
 ## --- Gradient Descent methods --- ##
 class GDTemplate:
@@ -261,7 +263,7 @@ def plot2D(x_data, y_data, z_data, labels=['','','','','',''],
     ax.set_title(labels[0]); ax.set_xlabel(labels[1])
     ax.set_ylabel(labels[2]); ax.set_zlabel(labels[3],rotation=90)
     ax.tick_params(axis='both', which='major', labelsize=6)
-    #fig.tight_layout()
+    fig.tight_layout(w_pad=10)
     if save == True:
         fig.savefig(f_name,dpi=300,bbox_inches='tight')
 
@@ -328,6 +330,9 @@ def contour_diff(x_data,y_data,z_data,cmap='viridis',
     f = ax.contourf(x_data,y_data,z_data,levels=15,cmap=cmap)
     ax.set_title(labels[0]); ax.set_xlabel(labels[1]); ax.set_ylabel(labels[2],rotation=0)
     fig.colorbar(f)
+
+    if save == True:
+        fig.savefig(f_name,dpi=300,bbox_inches='tight')
 
     return fig,ax
 
