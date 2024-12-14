@@ -15,6 +15,7 @@ The notebooks imports the classes and methods from three separate files. The mai
 - **Plain-PINN**: _network.py_ 
 - **TF-PINN**: _networkFlow.py_
 - **FD-solvers**: _FiniteDiff.py_
+
 These have dependencies on depend on:
 - _support.py_: Contains the activation function, plotting methods and GD-classes
 - _PDEq.py_: Contains the methods for including the PDEs into the PINNs
@@ -34,7 +35,7 @@ Several methods that utilize the strengths of neural networks (NNs) have been pr
 
 In this project, I have focused on an approach commonly called _Physics-Informed Neural Networks_ (PINNs), which can be seen as a specialization of a standard, fully-connected _Feed-Forward Neural Network_ (FFNN). The PINNs uses information from the PDEs to create a generative model that is able to predict the behavior of the physical system.
 
-My aim is to show how two different approaches of implementing a PINN perform against a FDM implementation that solves the unsteady wave and diffusion equations in up to two spatial dimensions. The PINN-implementations are based on chapter 15 in ([]()) and the companion programs to the paper ([]()). Both uses an _automatic differentiation_ approach for computing gradients and derivatives. The latter also uses the extensive _TensorFlow_-library when creating and training the network, while the former uses my own implementations to do the same.
+My aim is to show how two different approaches of implementing a PINN perform against a FDM implementation that solves the unsteady wave and diffusion equations in up to two spatial dimensions. The PINN-implementations are based on chapter 15 in ([Ch.15, FYS-STK3155/4155](https://compphysics.github.io/MachineLearning/doc/LectureNotes/_build/html/chapter11.html)) and the companion programs to the paper ([M. Raissi et.al.](https://maziarraissi.github.io/PINNs/)). Both uses an _automatic differentiation_ approach for computing gradients and derivatives. The latter also uses the extensive _TensorFlow_-library when creating and training the network, while the former uses my own implementations to do the same.
 
 For the PINNs, I will also show how different hyperparameters and the network structure choices impact the solution, as well as the choices related to different activation functions. For verification of both the PINN- and FDM- approach, I am using known analytical solutions to the two PDEs to compute performance metrics like the global error.
 
