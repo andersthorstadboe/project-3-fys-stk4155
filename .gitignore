@@ -8,11 +8,11 @@ __pycache__/
 
 #Folders
 00-notes
-03-results
+#03-results
 04-examples
 05-resources
 08-storage
-09-archive
+#09-archive
 p3-venv
 
 # Distribution / packaging
